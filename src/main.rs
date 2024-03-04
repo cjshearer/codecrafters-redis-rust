@@ -1,4 +1,4 @@
- use std::{io::Write, net::{TcpListener, TcpStream}};
+ use std::{io::{Read, Write}, net::{TcpListener, TcpStream}};
 
 fn main() {
     println!("Logs from your program will appear here!");
@@ -9,7 +9,7 @@ fn main() {
         match stream {
             Ok(stream) => {
                 println!("accepted new connection");
-                handle_stream(stream);
+                handle_client(stream);
             }
             Err(e) => {
                 println!("error: {}", e);
@@ -18,6 +18,13 @@ fn main() {
     }
 }   
 
-fn handle_stream(mut stream: TcpStream) {
-    stream.write_all(b"+PONG\r\n").unwrap();
+fn handle_client(mut stream: TcpStream) {
+    let mut read_buffer = [0 as u8;512];
+
+    loop {
+        let Ok(_read_buffer) = stream.read(&mut read_buffer) else {
+            continue;
+        };
+        let _ = stream.write_all(b"+PONG\r\n");
+    }
 }
