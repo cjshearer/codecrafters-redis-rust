@@ -1,10 +1,14 @@
-use std::{io::{Read, Write}, net::{TcpListener, TcpStream}, thread};
+use std::{
+    io::{Read, Write},
+    net::{TcpListener, TcpStream},
+    thread,
+};
 
 fn main() {
     println!("Logs from your program will appear here!");
 
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
-    
+
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
@@ -18,15 +22,14 @@ fn main() {
             }
         }
     }
-}   
+}
 
 fn handle_client(mut stream: TcpStream) {
-    let mut read_buffer = [0 as u8;512];
+    let mut buffer = [0; 512];
+    let mut bytes_read = 1;
 
-    loop {
-        let Ok(_read_buffer) = stream.read(&mut read_buffer) else {
-            continue;
-        };
+    while bytes_read != 0 {
+        bytes_read = stream.read(&mut buffer).unwrap_or(0);
         let _ = stream.write_all(b"+PONG\r\n");
     }
 }
