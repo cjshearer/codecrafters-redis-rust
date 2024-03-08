@@ -1,35 +1,47 @@
 use std::{
-    io::{Read, Write},
-    net::{TcpListener, TcpStream},
+    io::{self, BufRead, BufReader, Write},
+    net::TcpListener,
     thread,
 };
 
 fn main() {
-    println!("Logs from your program will appear here!");
-
     let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
-                println!("accepted new connection");
-                thread::spawn(|| {
-                    handle_client(stream);
-                });
+    let mut connections = Vec::new();
+    let mut buffer: Vec<u8> = Vec::new();
+
+    loop {
+        listener.set_nonblocking(connections.len() != 0).unwrap();
+        match listener.accept() {
+            Ok((stream, _)) => {
+                stream.set_nonblocking(true).unwrap();
+                connections.push(BufReader::new(stream));
+                println!("there are now {} connections", connections.len());
             }
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => thread::yield_now(),
             Err(e) => {
-                println!("error: {}", e);
+                println!("connection failed: {}", e);
             }
         }
-    }
-}
 
-fn handle_client(mut stream: TcpStream) {
-    let mut buffer = [0; 512];
-    let mut bytes_read = 1;
-
-    while bytes_read != 0 {
-        bytes_read = stream.read(&mut buffer).unwrap_or(0);
-        let _ = stream.write_all(b"+PONG\r\n");
+        connections.retain_mut(|reader| {
+            buffer.clear();
+            return match reader.read_until(b'\n', &mut buffer) {
+                Ok(0) => false,
+                Ok(_bytes_read) => {
+                    println!("{}", String::from_utf8(buffer.clone()).unwrap());
+                    reader.get_ref().write_all(b"+PONG\r\n").unwrap();
+                    true
+                }
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    thread::yield_now();
+                    true
+                }
+                Err(e) => {
+                    println!("{}", e);
+                    false
+                }
+            };
+        });
     }
 }
