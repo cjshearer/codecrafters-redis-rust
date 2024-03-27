@@ -1,47 +1,46 @@
-use std::{
-    io::{self, BufRead, BufReader, Write},
-    net::TcpListener,
-    thread,
-};
+mod command;
+mod connection;
+mod frame;
 
-fn main() {
-    let listener = TcpListener::bind("127.0.0.1:6379").unwrap();
+use crate::command::Command;
+use connection::Connection;
+use tokio::{self, net::TcpListener};
 
-    let mut connections = Vec::new();
-    let mut buffer: Vec<u8> = Vec::new();
-
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let listener = TcpListener::bind("127.0.0.1:6379").await?;
     loop {
-        listener.set_nonblocking(connections.len() != 0).unwrap();
-        match listener.accept() {
-            Ok((stream, _)) => {
-                stream.set_nonblocking(true).unwrap();
-                connections.push(BufReader::new(stream));
-                println!("there are now {} connections", connections.len());
-            }
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => thread::yield_now(),
-            Err(e) => {
-                println!("connection failed: {}", e);
-            }
-        }
+        let (mut stream, _) = listener.accept().await?;
+        tokio::spawn(async move {
+            let mut connection = Connection::new(&mut stream);
+            loop {
+                let frame = match connection.read_frame().await {
+                    Ok(Some(frame)) => frame,
+                    Ok(None) => break, // disconnect
+                    Err(e) => {
+                        println!("{:?}", e);
+                        continue;
+                        // todo!("send frame parsing error back to client");
+                    }
+                };
+                let command: Command = match frame.try_into() {
+                    Ok(command) => command,
+                    Err(e) => {
+                        println!("{:?}", e);
+                        continue;
+                        // todo!("send command parsing error back to client")
+                    }
+                };
+                connection.write_frame(command.apply()).await;
 
-        connections.retain_mut(|reader| {
-            buffer.clear();
-            return match reader.read_until(b'\n', &mut buffer) {
-                Ok(0) => false,
-                Ok(_bytes_read) => {
-                    println!("{}", String::from_utf8(buffer.clone()).unwrap());
-                    reader.get_ref().write_all(b"+PONG\r\n").unwrap();
-                    true
-                }
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    thread::yield_now();
-                    true
-                }
-                Err(e) => {
-                    println!("{}", e);
-                    false
-                }
-            };
+                // // TODO(cjshearer): create a db object that this command is applied to
+                // writer.write_all_buf(&mut command.apply());
+                // // frame_result.write(&mut stream).await;
+                // TODO(cjshearer): pipelining https://redis.io/topics/pipelining
+                // writer.flush().await;
+
+                // println!("{:?}", command);
+            }
         });
     }
 }
