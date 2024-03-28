@@ -53,9 +53,9 @@ fn next_bytes<'a>(it: &mut Iter<'_, Frame>) -> Result<Bytes, Error> {
 impl Command {
     /// Returns a frame with the response to applying the command, which may be an error
     pub fn apply(&self) -> Frame {
-        Frame::Array(vec![match self {
+        match self {
             Command::Ping => Frame::Bulk("PONG".into()),
             Command::Echo(s) => Frame::Bulk(s.clone()),
-        }])
+        }
     }
 }
