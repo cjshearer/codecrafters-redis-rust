@@ -1,17 +1,22 @@
 mod command;
 mod connection;
+mod db;
 mod frame;
 
 use crate::command::Command;
 use connection::Connection;
+use db::Db;
 use tokio::{self, net::TcpListener};
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = TcpListener::bind("127.0.0.1:6379").await?;
+    let db = Db::new();
     loop {
         let (mut stream, _) = listener.accept().await?;
+        let db = db.clone();
         tokio::spawn(async move {
+            // TODO(cjshearer): pipelining https://redis.io/topics/pipelining
             let mut connection = Connection::new(&mut stream);
             loop {
                 let frame = match connection.read_frame().await {
@@ -31,15 +36,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         // todo!("send command parsing error back to client")
                     }
                 };
-                connection.write_frame(command.apply()).await;
-
-                // // TODO(cjshearer): create a db object that this command is applied to
-                // writer.write_all_buf(&mut command.apply());
-                // // frame_result.write(&mut stream).await;
-                // TODO(cjshearer): pipelining https://redis.io/topics/pipelining
-                // writer.flush().await;
-
-                // println!("{:?}", command);
+                let result = db.apply(command);
+                let _ = connection.write_frame(result).await;
             }
         });
     }
