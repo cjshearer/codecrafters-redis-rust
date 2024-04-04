@@ -1,7 +1,7 @@
 use bytes::Bytes;
 
 macro_rules! build_matching_prefix_and_frame_enums {
-    ($($name:ident$(($type:ty))? = $value:expr),*) => {
+    ($($name:ident$(($type:ty))? = $value:literal$(,)?)*) => {
 
         pub enum Prefix {
             $(
@@ -35,13 +35,13 @@ macro_rules! build_matching_prefix_and_frame_enums {
 
 // https://redis.io/docs/reference/protocol-spec/#resp-protocol-description
 build_matching_prefix_and_frame_enums! {
-    Array(Vec<Frame>) = b'*',
+    Array(Option<Vec<Frame>>) = b'*',
     Boolean(bool) = b'#',
-    Bulk(Bytes) = b'$',
+    Bulk(Option<Bytes>) = b'$',
     Error(Bytes) = b'-',
     Integer(i64) = b':',
     Null = b'_',
-    String(Bytes) = b'+'
+    String(Bytes) = b'+',
 }
 
 impl Frame {
@@ -49,7 +49,7 @@ impl Frame {
         Some(
             match self {
                 Frame::String(buf) => buf,
-                Frame::Bulk(buf) => buf,
+                Frame::Bulk(Some(buf)) => buf,
                 _ => return None,
             }
             .clone(), // shallow clone

@@ -19,7 +19,7 @@ pub enum Error {
 impl TryFrom<Frame> for Command {
     type Error = Error;
     fn try_from(value: Frame) -> Result<Self, Error> {
-        let Frame::Array(arr) = value else {
+        let Frame::Array(Some(arr)) = value else {
             return Err(Error::NotAnArray);
         };
         let mut args = arr.iter();
@@ -45,7 +45,7 @@ fn next<'a>(it: &'a mut Iter<'_, Frame>) -> Result<&'a Frame, Error> {
 ///
 /// Returns:
 /// - `Err(Error::MissingArgument)` if the next item is unavailable
-/// - `Err(Error::WrongType` if the next item does not contain `Bytes`
+/// - `Err(Error::WrongType)` if the next item does not contain `Bytes`
 fn next_bytes<'a>(it: &mut Iter<'_, Frame>) -> Result<Bytes, Error> {
     next(it)?.get_bytes().ok_or(Error::WrongType)
 }
@@ -54,8 +54,8 @@ impl Command {
     /// Returns a frame with the response to applying the command, which may be an error
     pub fn apply(&self) -> Frame {
         match self {
-            Command::Ping => Frame::Bulk("PONG".into()),
-            Command::Echo(s) => Frame::Bulk(s.clone()),
+            Command::Ping => Frame::Bulk(Some("PONG".into())),
+            Command::Echo(s) => Frame::Bulk(Some(s.clone())),
         }
     }
 }

@@ -90,7 +90,7 @@ impl<'a, RW: AsyncRead + AsyncWrite + Unpin> Connection<'a, RW> {
                 .is_some_and(|(arr, intended_capacity)| arr.len() == *intended_capacity)
                 .then(|| array_stack.pop().unwrap())
             {
-                let frame = Frame::Array(complete_array);
+                let frame = Frame::Array(Some(complete_array));
                 if array_stack.len() == 0 {
                     return Ok(Some(frame));
                 }
@@ -108,6 +108,7 @@ impl<'a, RW: AsyncRead + AsyncWrite + Unpin> Connection<'a, RW> {
             }
 
             let frame = match prefix {
+                Prefix::Array if payload.starts_with(b"-") => Frame::Array(None),
                 Prefix::Array => {
                     let size = str::from_utf8(&payload)?.parse()?;
                     let array: Vec<Frame> = Vec::with_capacity(size);
@@ -115,16 +116,17 @@ impl<'a, RW: AsyncRead + AsyncWrite + Unpin> Connection<'a, RW> {
                         array_stack.push((array, size));
                         continue;
                     }
-                    Frame::Array(array)
+                    Frame::Array(Some(array))
                 }
                 Prefix::Boolean => Frame::Boolean(Bool::try_from(payload.as_ref())?.into()),
+                Prefix::Bulk if payload.starts_with(b"-") => Frame::Bulk(None),
                 Prefix::Bulk => {
                     let size = str::from_utf8(&payload)?.parse::<usize>()? + 2;
                     let mut data = self.read_exact(size).await?;
                     if CRLF != data.split_off(data.len() - 2) {
                         return Err(ReadError::MissingTerminator);
                     }
-                    Frame::Bulk(data)
+                    Frame::Bulk(Some(data))
                 }
                 Prefix::Error => Frame::Error(payload),
                 Prefix::Integer => Frame::Integer(str::from_utf8(&payload)?.parse()?),
@@ -156,15 +158,16 @@ impl<'a, RW: AsyncRead + AsyncWrite + Unpin> Connection<'a, RW> {
             }
             self.write_buf.put_u8(frame.prefix());
             match frame {
-                Frame::Array(array) => {
+                Frame::Array(Some(array)) => {
                     self.write_buf
                         .put_slice(&array.len().to_string().as_bytes());
                     if array.len() > 0 {
                         iter_stack.push(array.iter());
                     }
                 }
+                Frame::Array(None) | Frame::Bulk(None) => self.write_buf.put_slice(b"-1"),
                 Frame::Boolean(bool) => self.write_buf.put_u8(Bool::from(*bool).into()),
-                Frame::Bulk(bulk) => {
+                Frame::Bulk(Some(bulk)) => {
                     self.write_buf.put_slice(bulk.len().to_string().as_bytes());
                     self.write_buf.put_slice(CRLF);
                     self.write_buf.put_slice(bulk.as_ref());
@@ -296,7 +299,9 @@ mod tests {
     read_tests! {
         invalid_bool: b"#invalid\r\n" => Err(ReadError::InvalidBool),
         missing_terminator: b"+I forgot the trailing CRLF" => Err(ReadError::IoError(UnexpectedEof)),
-        read_empty_buffer: b"" => Ok(None)
+        read_empty_buffer: b"" => Ok(None),
+        read_null_array: b"*-1\r\n" => Ok(Some(Frame::Array(None))),
+        read_null_bulk: b"$-1\r\n" => Ok(Some(Frame::Bulk(None)))
     }
 
     test_reading_and_writing_frames! {
@@ -309,23 +314,23 @@ mod tests {
         read_negative_integer: b":-42\r\n",
         write_negative_integer: Frame::Integer(-42),
         read_bulk: b"$4\r\nbulk\r\n",
-        write_bulk: Frame::Bulk("bulk".into()),
+        write_bulk: Frame::Bulk(Some("bulk".into())),
         read_array: b"*3\r\n$3\r\nset\r\n$3\r\nkey\r\n$5\r\nvalue\r\n",
         write_array: {
             Frame::Array(vec![
-                Frame::Bulk("set".into()),
-                Frame::Bulk("key".into()),
-                Frame::Bulk("value".into())
-            ])
+                Frame::Bulk(Some("set".into())),
+                Frame::Bulk(Some("key".into())),
+                Frame::Bulk(Some("value".into()))
+            ].into())
         },
         read_nested_arrays: b"*1\r\n*2\r\n*0\r\n*0\r\n",
         write_nested_arrays: {
             Frame::Array(vec![
                 Frame::Array(vec![
-                    Frame::Array(vec![]),
-                    Frame::Array(vec![]),
-                ]),
-            ])
+                    Frame::Array(vec![].into()),
+                    Frame::Array(vec![].into()),
+                ].into()),
+            ].into())
         },
         read_null: b"_\r\n",
         write_null: Frame::Null,
