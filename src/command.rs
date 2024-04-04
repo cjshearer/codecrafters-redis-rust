@@ -6,6 +6,8 @@ use std::slice::Iter;
 pub enum Command {
     Ping,
     Echo(Bytes),
+    Get(Bytes),
+    Set([Bytes; 2]),
 }
 
 #[derive(Debug)]
@@ -29,6 +31,11 @@ impl TryFrom<Frame> for Command {
         return match arr.len() {
             1 if command.eq_ignore_ascii_case(b"ping") => Ok(Command::Ping),
             2 if command.eq_ignore_ascii_case(b"echo") => Ok(Command::Echo(next_bytes(&mut args)?)),
+            2 if command.eq_ignore_ascii_case(b"get") => Ok(Command::Get(next_bytes(&mut args)?)),
+            3 if command.eq_ignore_ascii_case(b"set") => Ok(Command::Set([
+                next_bytes(&mut args)?,
+                next_bytes(&mut args)?,
+            ])),
             _ => Err(Error::UnknownCommand),
         };
     }
@@ -48,14 +55,4 @@ fn next<'a>(it: &'a mut Iter<'_, Frame>) -> Result<&'a Frame, Error> {
 /// - `Err(Error::WrongType)` if the next item does not contain `Bytes`
 fn next_bytes<'a>(it: &mut Iter<'_, Frame>) -> Result<Bytes, Error> {
     next(it)?.get_bytes().ok_or(Error::WrongType)
-}
-
-impl Command {
-    /// Returns a frame with the response to applying the command, which may be an error
-    pub fn apply(&self) -> Frame {
-        match self {
-            Command::Ping => Frame::Bulk(Some("PONG".into())),
-            Command::Echo(s) => Frame::Bulk(Some(s.clone())),
-        }
-    }
 }
