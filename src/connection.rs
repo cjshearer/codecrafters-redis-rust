@@ -1,5 +1,5 @@
 use crate::frame::{Bool, Frame, InvalidBool, InvalidPrefix, Prefix};
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bytes::{Buf, BufMut, BytesMut};
 use core::num;
 use std::{
     io::{
@@ -190,8 +190,8 @@ impl<'a, RW: AsyncRead + AsyncWrite + Unpin> Connection<'a, RW> {
         };
     }
 
-    /// Reads all bytes until a newline (the 0xA byte) is reached, returning them as `Bytes`.
-    async fn read_line(&mut self) -> io::Result<Bytes> {
+    /// Reads all bytes until a newline (the 0xA byte) is reached, returning them as `BytesMut`.
+    async fn read_line(&mut self) -> io::Result<BytesMut> {
         let mut cursor = 0;
         loop {
             if let Some(terminal) = self.read_buf[cursor..].iter().position(|c| *c == LF) {
@@ -201,15 +201,15 @@ impl<'a, RW: AsyncRead + AsyncWrite + Unpin> Connection<'a, RW> {
             cursor = self.read_buf.len();
             self.must_fill_buf().await?;
         }
-        Ok(self.read_buf.split_to(cursor + 1).freeze())
+        Ok(self.read_buf.split_to(cursor + 1))
     }
 
-    /// Fills the buffer with at least `size` bytes, returning them as `Bytes`.
-    async fn read_exact(&mut self, size: usize) -> io::Result<Bytes> {
+    /// Fills the buffer with at least `size` bytes, returning them as `BytesMut`.
+    async fn read_exact(&mut self, size: usize) -> io::Result<BytesMut> {
         while self.read_buf.len() < size {
             self.must_fill_buf().await?;
         }
-        Ok(self.read_buf.split_to(size).freeze())
+        Ok(self.read_buf.split_to(size))
     }
 
     /// Reads a u8 from the buffer, filling it with more bytes from the reader if necessary

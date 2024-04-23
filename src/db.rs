@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 
 use crate::{command::Command, frame::Frame};
 
@@ -12,7 +12,9 @@ pub struct Db {
 }
 
 struct State {
-    keystore: HashMap<Bytes, Bytes>,
+    // TODO: consider the implications of sharing a BytesMut across threads
+    // TODO: do we need a BytesMut for any reason other than satisfying the Frame interface?
+    keystore: HashMap<Bytes, BytesMut>,
 }
 
 impl Db {
@@ -30,17 +32,22 @@ impl Db {
     pub fn apply(&self, command: Command) -> Frame {
         match command {
             Command::Ping => Frame::Bulk(Some("PONG".into())),
-            Command::Echo(s) => Frame::Bulk(Some(s.clone())),
-            Command::Set([k, v]) => {
-                let _ = self.state.lock().unwrap().keystore.insert(k, v);
+            Command::Echo { message } => Frame::Bulk(Some(message)),
+            Command::Set { key, value, .. } => {
+                let _ = self
+                    .state
+                    .lock()
+                    .unwrap()
+                    .keystore
+                    .insert(key.into(), value.into());
                 Frame::Bulk(Some("OK".into()))
             }
-            Command::Get(k) => Frame::Bulk(
+            Command::Get { key } => Frame::Bulk(
                 self.state
                     .lock()
                     .unwrap()
                     .keystore
-                    .get(&k)
+                    .get(&key.freeze())
                     .map(|b| b.clone()),
             ),
         }
